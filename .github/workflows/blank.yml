@@ -1,0 +1,104 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <unistd.h>
+#include <stdint.h> // For intptr_t
+
+#define NUM_RUNWAYS 3
+#define BUFFER_SIZE 5
+
+int buffer[BUFFER_SIZE];
+int in = 0, out = 0;
+
+pthread_mutex_t mutex;
+pthread_cond_t cond_produce, cond_consume;
+int running = 1;
+
+void* aircraft(void* id) {
+    int aircraft_id = (intptr_t)id; // Safe casting
+    printf("Aircraft %d is created and waiting.\n", aircraft_id);
+
+    pthread_mutex_lock(&mutex);
+    while ((in + 1) % BUFFER_SIZE == out) {
+        pthread_cond_wait(&cond_produce, &mutex);
+    }
+
+    buffer[in] = aircraft_id;
+    printf("Aircraft %d is waiting for a runway.\n", aircraft_id);
+    in = (in + 1) % BUFFER_SIZE;
+
+    pthread_cond_signal(&cond_consume);
+    pthread_mutex_unlock(&mutex);
+
+    return NULL;
+}
+
+void* runway(void* id) {
+    int runway_id = (intptr_t)id; // Safe casting
+
+    while (running) {
+        pthread_mutex_lock(&mutex);
+        while (in == out && running) {
+            pthread_cond_wait(&cond_consume, &mutex);
+        }
+
+        if (!running) {
+            pthread_mutex_unlock(&mutex);
+            break;
+        }
+
+        int aircraft_id = buffer[out];
+        printf("Runway %d is now serving aircraft %d.\n", runway_id, aircraft_id);
+        out = (out + 1) % BUFFER_SIZE;
+
+        pthread_cond_signal(&cond_produce);
+        pthread_mutex_unlock(&mutex);
+        sleep(1); // Simulate runway serving time
+    }
+    return NULL;
+}
+
+int main() {
+    pthread_t runway_threads[NUM_RUNWAYS];
+    pthread_t aircraft_threads[10];
+
+    pthread_mutex_init(&mutex, NULL);
+    pthread_cond_init(&cond_produce, NULL);
+    pthread_cond_init(&cond_consume, NULL);
+
+    // Create runway threads
+    for (int i = 0; i < NUM_RUNWAYS; i++) {
+        pthread_create(&runway_threads[i], NULL, runway, (void*)(intptr_t)(i + 1));
+    }
+
+    // Create aircraft threads
+    for (int i = 0; i < 10; i++) {
+        pthread_create(&aircraft_threads[i], NULL, aircraft, (void*)(intptr_t)(i + 1));
+        sleep(rand() % 3); // Random delay to simulate aircraft arrivals
+    }
+
+    // Wait for all aircraft threads to finish
+    for (int i = 0; i < 10; i++) {
+        pthread_join(aircraft_threads[i], NULL);
+    }
+
+    // Signal runway threads to exit
+    pthread_mutex_lock(&mutex);
+    running = 0;
+    pthread_cond_broadcast(&cond_consume);
+    pthread_mutex_unlock(&mutex);
+
+    for (int i = 0; i < NUM_RUNWAYS; i++) {
+        pthread_join(runway_threads[i], NULL);
+    }
+
+    pthread_mutex_destroy(&mutex);
+    pthread_cond_destroy(&cond_produce);
+    pthread_cond_destroy(&cond_consume);
+
+    printf("Simulation complete.\n");
+    return 0;
+}
+        run: |
+          echo Add other actions to build,
+          echo test, and deploy your project.
